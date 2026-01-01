@@ -67,9 +67,17 @@ class BrowserManager:
 
     def is_turn(self):
         try:
-            self.driver.find_element(By.CSS_SELECTOR, ".clock-bottom.clock-player-turn")
-            return True
-        except: return False
+            # 1. Check strict positive (Bottom clock has turn class)
+            if self.driver.find_elements(By.CSS_SELECTOR, ".clock-bottom.clock-player-turn"):
+                return True
+            
+            # 2. Check strict negative (Top/Opponent has turn class)
+            if self.driver.find_elements(By.CSS_SELECTOR, ".clock-top.clock-player-turn"):
+                return False
+
+            # 3. Ambiguous state: return None (let UI decide based on clock diff)
+            return None
+        except: return None
 
     def get_clock(self):
         try:

@@ -26,7 +26,8 @@ class TritonideUI(ctk.CTk):
             "panic": True, "login_mode": False, "processing": False,
             "toxic_fen": "", "consecutive_errors": 0, "last_fen": "",
             "game_started": False, "last_white_time": "", "last_black_time": "",
-            "clock_stable_start": 0, "new_game_clicked": False
+            "clock_stable_start": 0, "new_game_clicked": False,
+            "last_my_clock_val": 9999.0
         }
         
         self.init_components()
@@ -78,7 +79,7 @@ class TritonideUI(ctk.CTk):
 
     def build_personalities(self, parent):
         ctk.CTkLabel(parent, text="LOAD PROFILE", font=("Segoe UI", 14, "bold")).pack(pady=20)
-        profiles = [("GRANDMASTER", 20, 22, 0.6, 1.2, "#9B59B6"), ("LEGIT", 20, 12, 0.8, 3.5, "#00E5FF"), ("HUMAN BLITZ", 15, 10, 0.2, 0.6, "#3498DB"), ("BEGINNER", 5, 4, 2.5, 6.0, "#F1C40F"), ("AGGRESSIVE", 18, 15, 0.1, 0.3, "#E74C3C")]
+        profiles = [("GRANDMASTER", 20, 22, 0.6, 1.2, "#9B59B6"), ("LEGIT HABILIDOSO", 20, 12, 0.8, 3.5, "#00E5FF"), ("HUMAN BLITZ", 15, 10, 0.2, 0.6, "#3498DB"), ("BEGINNER", 5, 4, 2.5, 6.0, "#F1C40F"), ("AGGRESSIVE", 18, 15, 0.1, 0.3, "#E74C3C")]
         for n, s, d, mn, mx, c in profiles:
             ctk.CTkButton(parent, text=n, font=("Segoe UI", 12, "bold"), fg_color="transparent", border_width=2, border_color=c, text_color=c, height=40, command=lambda s=s, d=d, mn=mn, mx=mx, nm=n: self.load_profile(s, d, mn, mx, nm)).pack(fill="x", padx=40, pady=6)
 
@@ -151,10 +152,31 @@ class TritonideUI(ctk.CTk):
     def engine_step(self):
         self.app_state["processing"] = True
         try:
-            if not self.browser.is_turn():
+            # Enhanced Turn Detection
+            is_my_turn = False
+            turn_indicator = self.browser.is_turn()
+            
+            # Logic: If specifically True, yes. If None, check clock. If False, definitely no.
+            if turn_indicator is True:
+                is_my_turn = True
+            elif turn_indicator is False:
+                is_my_turn = False
+            else:
+                # Ambiguous case: Check if my clock is ticking
+                curr_clock = self.browser.get_clock()
+                prev_clock = self.app_state.get("last_my_clock_val", 9999.0)
+                
+                # If clock dropped by a small amount (ticking), it's my turn
+                if curr_clock < prev_clock - 0.01 and curr_clock > prev_clock - 2.0:
+                    is_my_turn = True
+                
+                self.app_state["last_my_clock_val"] = curr_clock
+
+            if not is_my_turn:
                 if self.app_state["autoplay"]: self.status("OPPONENT'S TURN", "#666")
                 self.app_state["processing"] = False; return
 
+            # Get Board & FEN
             board = self.browser.get_board_element()
             if not board: self.app_state["processing"] = False; return
             
