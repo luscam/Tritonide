@@ -178,7 +178,7 @@ class TritonideUI(ctk.CTk):
             curr_clock = self.browser.get_clock()
             prev_clock = self.app_state.get("last_my_clock_val", 9999.0)
             
-            clock_dropped = (curr_clock < prev_clock - 0.01)
+            clock_dropped = (curr_clock < prev_clock - 0.001)
             
             self.app_state["last_my_clock_val"] = curr_clock
 
@@ -286,4 +286,4 @@ class TritonideUI(ctk.CTk):
                 if self.app_state["autoplay"] and not self.app_state["processing"]:
                     self.engine_step()
             except: pass
-            time.sleep(0.25)
+            time.sleep(0.2)

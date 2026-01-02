@@ -26,6 +26,7 @@ class BrowserManager:
         opts.add_argument("--log-level=3")
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
         opts.add_experimental_option('useAutomationExtension', False)
+        
         self.driver = webdriver.Chrome(options=opts)
         self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
@@ -54,6 +55,7 @@ class BrowserManager:
         if not self.driver or not self.actions: return False
         try:
             board = self.get_board_element()
+            
             try:
                 src_el = board.find_element(By.CSS_SELECTOR, f".piece.square-{source_sq}")
             except:
@@ -70,11 +72,14 @@ class BrowserManager:
             else:
                 self.actions.move_to_element(src_el).click().perform()
                 time.sleep(0.02)
+            
             try: 
                 target_el = board.find_element(By.CSS_SELECTOR, f".hint.square-{dest_sq}")
             except: 
                 target_el = board.find_element(By.CSS_SELECTOR, f".square-{dest_sq}")
+            
             self.actions.move_to_element(target_el).click().perform()
+            
             if promotion:
                 time.sleep(0.15)
                 prom_selector = f".promotion-piece.{'b' if is_black else 'w'}{promotion}"
@@ -82,46 +87,51 @@ class BrowserManager:
                     self.actions.move_to_element(self.driver.find_element(By.CSS_SELECTOR, prom_selector)).click().perform()
                 except:
                     self.driver.execute_script(f"document.querySelector('{prom_selector}')?.click();")
+            
             return True
         except: return False
 
     def is_turn(self):
         if not self.driver: return None
         script = """
-            const getClock = (isBottom) => {
-                return document.querySelector(isBottom 
+            const getEl = (isBottom) => {
+                const clock = document.querySelector(isBottom 
                     ? '.clock-bottom, [data-cy="clock-bottom"], .player-component.bottom .clock-component' 
                     : '.clock-top, [data-cy="clock-top"], .player-component.top .clock-component');
+                const container = document.querySelector(isBottom
+                    ? '.player-component.bottom'
+                    : '.player-component.top');
+                return { clock, container };
             };
 
-            const bottom = getClock(true);
-            const top = getClock(false);
+            const bottom = getEl(true);
+            const top = getEl(false);
 
-            if (!bottom || !top) return null;
+            if (!bottom.clock || !top.clock) return null;
 
-            if (bottom.classList.contains('clock-running')) return true;
-            if (top.classList.contains('clock-running')) return false;
+            const topRunning = top.clock.classList.contains('clock-running') || 
+                               (top.container && top.container.classList.contains('player-turn'));
+            if (topRunning) return false;
 
-            const getBgColor = (el) => window.getComputedStyle(el).backgroundColor;
-            
-            const isColorActive = (color) => {
-                if (!color) return false;
-                return color.startsWith('rgb(255') || color.startsWith('rgba(255') || color === '#ffffff';
+            const botRunning = bottom.clock.classList.contains('clock-running') || 
+                               (bottom.container && bottom.container.classList.contains('player-turn'));
+            if (botRunning) return true;
+
+            const isActiveColor = (el) => {
+                if (!el) return false;
+                const bg = window.getComputedStyle(el).backgroundColor;
+                return bg.includes('255, 255, 255') || bg.includes('255,') || bg === '#ffffff';
             };
 
-            const botActive = isColorActive(getBgColor(bottom));
-            const topActive = isColorActive(getBgColor(top));
+            const botActive = isActiveColor(bottom.clock);
+            const topActive = isActiveColor(top.clock);
 
             if (botActive && !topActive) return true;
             if (topActive && !botActive) return false;
 
-            const botOp = parseFloat(window.getComputedStyle(bottom).opacity);
-            const topOp = parseFloat(window.getComputedStyle(top).opacity);
-            
-            if (botOp > topOp) return true;
-            if (topOp > botOp) return false;
+            if (!topActive && !topRunning) return true;
 
-            return null; 
+            return null;
         """
         try:
             return self.driver.execute_script(script)
