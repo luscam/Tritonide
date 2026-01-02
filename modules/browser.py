@@ -21,6 +21,9 @@ class BrowserManager:
         opts.add_argument('--disable-blink-features=AutomationControlled')
         opts.add_argument("--disable-infobars")
         opts.add_argument("--start-maximized")
+        opts.add_argument("--disable-gpu")
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--log-level=3")
         opts.add_experimental_option("excludeSwitches", ["enable-automation"])
         opts.add_experimental_option('useAutomationExtension', False)
         
@@ -52,48 +55,50 @@ class BrowserManager:
         if not self.driver or not self.actions: return False
         try:
             board = self.get_board_element()
-            self.actions.move_to_element(board.find_element(By.CSS_SELECTOR, f".piece.square-{source_sq}")).click().perform()
-            time.sleep(0.05)
+            src_el = board.find_element(By.CSS_SELECTOR, f".piece.square-{source_sq}")
+            self.actions.move_to_element(src_el).click().perform()
+            time.sleep(0.02)
             
-            try: t_el = board.find_element(By.CSS_SELECTOR, f".hint.square-{dest_sq}")
-            except: t_el = board.find_element(By.CSS_SELECTOR, f".square-{dest_sq}")
+            try: 
+                target_el = board.find_element(By.CSS_SELECTOR, f".hint.square-{dest_sq}")
+            except: 
+                target_el = board.find_element(By.CSS_SELECTOR, f".square-{dest_sq}")
             
-            self.actions.move_to_element(t_el).click().perform()
+            self.actions.move_to_element(target_el).click().perform()
             
             if promotion:
-                time.sleep(0.3)
-                self.actions.move_to_element(self.driver.find_element(By.CSS_SELECTOR, f".promotion-piece.{'b' if is_black else 'w'}{promotion}")).click().perform()
+                time.sleep(0.2)
+                try:
+                    self.actions.move_to_element(self.driver.find_element(By.CSS_SELECTOR, f".promotion-piece.{'b' if is_black else 'w'}{promotion}")).click().perform()
+                except:
+                    self.driver.execute_script("arguments[0].click();", self.driver.find_element(By.CSS_SELECTOR, f".promotion-piece.{'b' if is_black else 'w'}{promotion}"))
+            
             return True
         except: return False
 
     def is_turn(self):
+        if not self.driver: return None
+        script = """
+            const bottom = document.querySelector('.clock-bottom');
+            const top = document.querySelector('.clock-top');
+            if (!bottom || !top) return null;
+            const activeKeywords = ['clock-player-turn', 'clock-active', 'clock-running', 'clock-low-time'];
+            const isBottomActive = activeKeywords.some(cls => bottom.classList.contains(cls));
+            const isTopActive = activeKeywords.some(cls => top.classList.contains(cls));
+            if (isBottomActive) return true;
+            if (isTopActive) return false;
+            if (window.getComputedStyle(bottom).opacity == '1' && window.getComputedStyle(top).opacity != '1') return true;
+            return null;
+        """
         try:
-            # Procure por qualquer relógio ativo
-            active_clocks = self.driver.find_elements(By.CSS_SELECTOR, ".clock-player-turn")
-            
-            if not active_clocks:
-                return None # Estado ambíguo
-            
-            for clock in active_clocks:
-                # Verifica classes para identificar se é bottom (user) ou top (opponent)
-                cls = clock.get_attribute("class")
-                if "clock-bottom" in cls:
-                    return True
-                if "clock-top" in cls:
-                    return False
-            
-            return None
+            return self.driver.execute_script(script)
         except: return None
 
     def get_clock(self):
         try:
-            # Tenta pegar texto de várias formas para garantir
             el = self.driver.find_element(By.CSS_SELECTOR, ".clock-bottom")
             txt = el.text.strip()
-            
-            # Limpeza de texto (remove chars estranhos)
             txt = re.sub(r"[^\d:.]", "", txt)
-            
             p = txt.split(':')
             if len(p) == 2: return float(p[0])*60 + float(p[1])
             elif len(p) == 3: return float(p[0])*3600 + float(p[1])*60 + float(p[2])
@@ -102,25 +107,38 @@ class BrowserManager:
 
     def get_all_clocks(self):
         try:
-            wc = self.driver.find_element(By.CSS_SELECTOR, ".clock-white").text.strip()
-            bc = self.driver.find_element(By.CSS_SELECTOR, ".clock-black").text.strip()
-            return wc, bc
+            return self.driver.execute_script("""
+                return [
+                    document.querySelector('.clock-white')?.innerText || '',
+                    document.querySelector('.clock-black')?.innerText || ''
+                ]
+            """)
         except: return None, None
     
     def resign(self):
         try:
-            try: self.driver.find_element(By.XPATH, "//span[contains(text(), 'Desistir')]").click()
-            except: self.driver.find_element(By.CSS_SELECTOR, ".resign-button-component").click()
-            time.sleep(0.5)
-            self.driver.find_element(By.CSS_SELECTOR, "[data-cy='confirm-yes']").click()
-            return True
+            btns = self.driver.find_elements(By.XPATH, "//button[contains(., 'Desistir') or contains(., 'Resign')]")
+            if not btns:
+                btns = self.driver.find_elements(By.CSS_SELECTOR, ".resign-button-component")
+            if btns:
+                btns[0].click()
+                time.sleep(0.5)
+                conf = self.driver.find_elements(By.CSS_SELECTOR, "[data-cy='confirm-yes']")
+                if conf:
+                    conf[0].click()
+                    return True
+            return False
         except: return False
 
     def start_new_game(self):
         try:
-            self.driver.get("https://www.chess.com/play/online")
-            wait = WebDriverWait(self.driver, 10)
-            btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-cy='new-game-index-play']")))
+            btn = WebDriverWait(self.driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-cy='new-game-index-play']"))
+            )
             btn.click()
             return True
-        except: return False
+        except: 
+            try:
+                self.driver.get("https://www.chess.com/play/online")
+                return True
+            except: return False

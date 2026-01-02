@@ -27,7 +27,8 @@ class TritonideUI(ctk.CTk):
             "toxic_fen": "", "consecutive_errors": 0, "last_fen": "",
             "game_started": False, "last_white_time": "", "last_black_time": "",
             "clock_stable_start": 0, "new_game_clicked": False,
-            "last_my_clock_val": 9999.0
+            "last_my_clock_val": 9999.0,
+            "clock_stuck_frames": 0
         }
         
         self.init_components()
@@ -171,27 +172,27 @@ class TritonideUI(ctk.CTk):
             is_my_turn = False
             turn_indicator = self.browser.is_turn()
             
-            # Prioridade 1: Indicador CSS explícito
             if turn_indicator is True:
                 is_my_turn = True
+                self.app_state["clock_stuck_frames"] = 0
             elif turn_indicator is False:
                 is_my_turn = False
+                self.app_state["clock_stuck_frames"] = 0
             else:
-                # Prioridade 2: Relógio diminuindo (tique-taque)
                 curr_clock = self.browser.get_clock()
                 prev_clock = self.app_state.get("last_my_clock_val", 9999.0)
                 
-                # Se era 9999 (início) apenas atualize
-                if prev_clock == 9999.0:
-                    self.app_state["last_my_clock_val"] = curr_clock
-                else:
-                    # Detecta queda no tempo (tolerância de 0.01 a 3.0s)
-                    if curr_clock < prev_clock - 0.01 and curr_clock > prev_clock - 3.0:
-                        is_my_turn = True
-                    self.app_state["last_my_clock_val"] = curr_clock
+                if curr_clock < prev_clock - 0.01:
+                    is_my_turn = True
+                    self.app_state["clock_stuck_frames"] = 0
+                elif curr_clock == prev_clock and prev_clock != 9999.0:
+                    self.app_state["clock_stuck_frames"] += 1
+                
+                self.app_state["last_my_clock_val"] = curr_clock
 
             if not is_my_turn:
-                if self.app_state["autoplay"]: self.status("OPPONENT'S TURN", "#666")
+                if self.app_state["autoplay"]: 
+                    self.status("OPPONENT'S TURN", "#666")
                 self.app_state["processing"] = False; return
 
             board = self.browser.get_board_element()
@@ -203,8 +204,12 @@ class TritonideUI(ctk.CTk):
             is_black = "flipped" in board.get_attribute("class")
             fen = f"{bfen} {'b' if is_black else 'w'} KQkq - 0 1"
             
-            if fen == self.app_state["toxic_fen"]: self.app_state["processing"] = False; return
+            if fen == self.app_state["toxic_fen"]: 
+                self.app_state["processing"] = False; return
             
+            if fen == self.app_state["last_fen"]:
+                self.app_state["processing"] = False; return
+
             if self.app_state["auto_resign"]:
                 eval_data = self.engine.get_evaluation(fen)
                 score = eval_data['value']
@@ -212,7 +217,7 @@ class TritonideUI(ctk.CTk):
                 p_score = score if not is_black else -score
                 if p_score < self.sld_eval.get():
                     self.log(f"Resigning (Eval {p_score})")
-                    if self.browser.resign(): self.sw_auto.deselect(); self.app_state["autoplay"] = False
+                    self.browser.resign()
                     self.app_state["processing"] = False; return
 
             sk, dp, mn, mx = self.get_panic_params()
@@ -230,12 +235,14 @@ class TritonideUI(ctk.CTk):
             
             if self.browser.make_move(src, dst, promo, is_black):
                 self.log(f"Played: {bm}")
+                self.app_state["last_fen"] = fen
                 self.app_state["consecutive_errors"] = 0
                 self.status("IDLE")
             
         except Exception as e:
             self.app_state["consecutive_errors"] += 1
-            if self.app_state["consecutive_errors"] >= 3: self.log("Resetting Engine..."); self.engine.restart(); self.app_state["consecutive_errors"] = 0
+            if self.app_state["consecutive_errors"] >= 3: 
+                self.log("Resetting Engine..."); self.engine.restart(); self.app_state["consecutive_errors"] = 0
             if "crashed" in str(e).lower(): self.app_state["toxic_fen"] = fen; self.engine.restart()
             
         self.app_state["processing"] = False
@@ -244,18 +251,19 @@ class TritonideUI(ctk.CTk):
         if not self.app_state["auto_newgame"] or self.app_state["new_game_clicked"]: return
         
         wc, bc = self.browser.get_all_clocks()
-        if not wc: return
         
         if wc != self.app_state["last_white_time"] or bc != self.app_state["last_black_time"]:
             self.app_state["last_white_time"] = wc; self.app_state["last_black_time"] = bc
             self.app_state["clock_stable_start"] = time.time()
             self.app_state["game_started"] = True
-        elif self.app_state["game_started"] and (time.time() - self.app_state["clock_stable_start"] > 7.5):
-            self.status("GAME OVER - REDIRECTING...", self.COLORS["success"])
+        
+        elif self.app_state["game_started"] and (time.time() - self.app_state["clock_stable_start"] > 8.0):
             if self.browser.start_new_game():
+                self.status("GAME OVER - NEW GAME", self.COLORS["success"])
                 self.app_state["new_game_clicked"] = True
                 self.app_state["game_started"] = False
                 self.app_state["toxic_fen"] = ""
+                self.app_state["last_fen"] = ""
                 threading.Thread(target=lambda: (time.sleep(10), self.app_state.update({"new_game_clicked": False})), daemon=True).start()
 
     def core_loop(self):
@@ -270,7 +278,8 @@ class TritonideUI(ctk.CTk):
                     time.sleep(1); continue
 
                 self.handle_game_end()
+                
                 if self.app_state["autoplay"] and not self.app_state["processing"]:
                     self.engine_step()
             except: pass
-            time.sleep(0.5)
+            time.sleep(0.3)
