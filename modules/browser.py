@@ -1,5 +1,6 @@
 import os
 import time
+import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
@@ -67,21 +68,32 @@ class BrowserManager:
 
     def is_turn(self):
         try:
-            # 1. Check strict positive (Bottom clock has turn class)
-            if self.driver.find_elements(By.CSS_SELECTOR, ".clock-bottom.clock-player-turn"):
-                return True
+            # Procure por qualquer relógio ativo
+            active_clocks = self.driver.find_elements(By.CSS_SELECTOR, ".clock-player-turn")
             
-            # 2. Check strict negative (Top/Opponent has turn class)
-            if self.driver.find_elements(By.CSS_SELECTOR, ".clock-top.clock-player-turn"):
-                return False
-
-            # 3. Ambiguous state: return None (let UI decide based on clock diff)
+            if not active_clocks:
+                return None # Estado ambíguo
+            
+            for clock in active_clocks:
+                # Verifica classes para identificar se é bottom (user) ou top (opponent)
+                cls = clock.get_attribute("class")
+                if "clock-bottom" in cls:
+                    return True
+                if "clock-top" in cls:
+                    return False
+            
             return None
         except: return None
 
     def get_clock(self):
         try:
-            txt = self.driver.find_element(By.CSS_SELECTOR, ".clock-bottom").text.strip()
+            # Tenta pegar texto de várias formas para garantir
+            el = self.driver.find_element(By.CSS_SELECTOR, ".clock-bottom")
+            txt = el.text.strip()
+            
+            # Limpeza de texto (remove chars estranhos)
+            txt = re.sub(r"[^\d:.]", "", txt)
+            
             p = txt.split(':')
             if len(p) == 2: return float(p[0])*60 + float(p[1])
             elif len(p) == 3: return float(p[0])*3600 + float(p[1])*60 + float(p[2])

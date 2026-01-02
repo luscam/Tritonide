@@ -79,7 +79,7 @@ class TritonideUI(ctk.CTk):
 
     def build_personalities(self, parent):
         ctk.CTkLabel(parent, text="LOAD PROFILE", font=("Segoe UI", 14, "bold")).pack(pady=20)
-        profiles = [("GRANDMASTER", 20, 22, 0.6, 1.2, "#9B59B6"), ("LEGIT HABILIDOSO", 20, 12, 0.8, 3.5, "#00E5FF"), ("HUMAN BLITZ", 15, 10, 0.2, 0.6, "#3498DB"), ("BEGINNER", 5, 4, 2.5, 6.0, "#F1C40F"), ("AGGRESSIVE", 18, 15, 0.1, 0.3, "#E74C3C")]
+        profiles = [("GRANDMASTER", 20, 22, 0.6, 1.2, "#9B59B6"), ("LEGIT", 20, 12, 0.8, 3.5, "#00E5FF"), ("HUMAN BLITZ", 15, 10, 0.2, 0.6, "#3498DB"), ("BEGINNER", 5, 4, 2.5, 6.0, "#F1C40F"), ("AGGRESSIVE", 18, 15, 0.1, 0.3, "#E74C3C")]
         for n, s, d, mn, mx, c in profiles:
             ctk.CTkButton(parent, text=n, font=("Segoe UI", 12, "bold"), fg_color="transparent", border_width=2, border_color=c, text_color=c, height=40, command=lambda s=s, d=d, mn=mn, mx=mx, nm=n: self.load_profile(s, d, mn, mx, nm)).pack(fill="x", padx=40, pady=6)
 
@@ -104,7 +104,13 @@ class TritonideUI(ctk.CTk):
 
     def log(self, text): self.txt_log.insert("end", f"> {text}\n"); self.txt_log.see("end")
     def status(self, text, color="#666"): self.lbl_status.configure(text=f"STATUS: {text}", text_color=color)
-    def update_state(self, key, val): self.app_state[key] = val; self.log(f"{key}: {val}")
+    
+    def update_state(self, key, val): 
+        self.app_state[key] = val
+        self.log(f"{key}: {val}")
+        if key in ["autoplay", "auto_newgame", "panic", "auto_resign"]:
+            self.save_settings(silent=True)
+
     def run_browser(self): threading.Thread(target=self.browser.launch, daemon=True).start()
     def toggle_login(self): self.app_state["login_mode"] = self.sw_login.get(); self.log(f"Login Mode: {self.app_state['login_mode']}")
 
@@ -113,7 +119,7 @@ class TritonideUI(ctk.CTk):
         for sld in [self.sld_skill, self.sld_depth, self.sld_min, self.sld_max]: sld._command(sld.get())
         self.log(f"Profile Loaded: {n}")
 
-    def save_settings(self):
+    def save_settings(self, silent=False):
         data = {
             "skill": self.sld_skill.get(), "depth": self.sld_depth.get(),
             "min_delay": self.sld_min.get(), "max_delay": self.sld_max.get(),
@@ -121,7 +127,8 @@ class TritonideUI(ctk.CTk):
             "autoplay": self.sw_auto.get(), "panic": self.sw_panic.get(),
             "auto_resign": self.sw_resign.get()
         }
-        ConfigManager.save(data); self.log("Config saved.")
+        ConfigManager.save(data)
+        if not silent: self.log("Config saved.")
 
     def load_settings(self):
         data = ConfigManager.load()
@@ -129,10 +136,19 @@ class TritonideUI(ctk.CTk):
         self.sld_min.set(data["min_delay"]); self.sld_max.set(data["max_delay"])
         self.sld_eval.set(data["resign_threshold"])
         for sld in [self.sld_skill, self.sld_depth, self.sld_min, self.sld_max, self.sld_eval]: sld._command(sld.get())
+        
         if data["auto_newgame"]: self.sw_newgame.select(); self.app_state["auto_newgame"] = True
+        else: self.sw_newgame.deselect(); self.app_state["auto_newgame"] = False
+
         if data["autoplay"]: self.sw_auto.select(); self.app_state["autoplay"] = True
+        else: self.sw_auto.deselect(); self.app_state["autoplay"] = False
+
         if data["panic"]: self.sw_panic.select(); self.app_state["panic"] = True
+        else: self.sw_panic.deselect(); self.app_state["panic"] = False
+
         if data["auto_resign"]: self.sw_resign.select(); self.app_state["auto_resign"] = True
+        else: self.sw_resign.deselect(); self.app_state["auto_resign"] = False
+
         self.log("Config loaded.")
 
     def force_move(self):
@@ -152,31 +168,32 @@ class TritonideUI(ctk.CTk):
     def engine_step(self):
         self.app_state["processing"] = True
         try:
-            # Enhanced Turn Detection
             is_my_turn = False
             turn_indicator = self.browser.is_turn()
             
-            # Logic: If specifically True, yes. If None, check clock. If False, definitely no.
+            # Prioridade 1: Indicador CSS explícito
             if turn_indicator is True:
                 is_my_turn = True
             elif turn_indicator is False:
                 is_my_turn = False
             else:
-                # Ambiguous case: Check if my clock is ticking
+                # Prioridade 2: Relógio diminuindo (tique-taque)
                 curr_clock = self.browser.get_clock()
                 prev_clock = self.app_state.get("last_my_clock_val", 9999.0)
                 
-                # If clock dropped by a small amount (ticking), it's my turn
-                if curr_clock < prev_clock - 0.01 and curr_clock > prev_clock - 2.0:
-                    is_my_turn = True
-                
-                self.app_state["last_my_clock_val"] = curr_clock
+                # Se era 9999 (início) apenas atualize
+                if prev_clock == 9999.0:
+                    self.app_state["last_my_clock_val"] = curr_clock
+                else:
+                    # Detecta queda no tempo (tolerância de 0.01 a 3.0s)
+                    if curr_clock < prev_clock - 0.01 and curr_clock > prev_clock - 3.0:
+                        is_my_turn = True
+                    self.app_state["last_my_clock_val"] = curr_clock
 
             if not is_my_turn:
                 if self.app_state["autoplay"]: self.status("OPPONENT'S TURN", "#666")
                 self.app_state["processing"] = False; return
 
-            # Get Board & FEN
             board = self.browser.get_board_element()
             if not board: self.app_state["processing"] = False; return
             
