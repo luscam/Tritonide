@@ -175,24 +175,24 @@ class TritonideUI(ctk.CTk):
             is_my_turn = False
             turn_indicator = self.browser.is_turn()
             
-            # Hybrid detection: logic + clock diff
             curr_clock = self.browser.get_clock()
             prev_clock = self.app_state.get("last_my_clock_val", 9999.0)
-            clock_dropped = (curr_clock < prev_clock - 0.05)
+            
+            clock_dropped = (curr_clock < prev_clock - 0.01)
             
             self.app_state["last_my_clock_val"] = curr_clock
 
             if self.app_state["force_turn_check"]:
                 is_my_turn = True
                 self.app_state["force_turn_check"] = False
-            elif turn_indicator is True:
-                is_my_turn = True
-                self.app_state["clock_stuck_frames"] = 0
             elif clock_dropped:
                 is_my_turn = True
                 self.app_state["clock_stuck_frames"] = 0
+            elif turn_indicator is True:
+                is_my_turn = True
+                self.app_state["clock_stuck_frames"] = 0
             elif turn_indicator is None and clock_dropped: 
-                is_my_turn = True # Trust clock if indicator is confused
+                is_my_turn = True 
             
             if not is_my_turn:
                 if self.app_state["autoplay"]: 
