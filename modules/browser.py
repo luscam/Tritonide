@@ -55,7 +55,6 @@ class BrowserManager:
         if not self.driver or not self.actions: return False
         try:
             board = self.get_board_element()
-            
             try:
                 src_el = board.find_element(By.CSS_SELECTOR, f".piece.square-{source_sq}")
             except:
@@ -109,13 +108,10 @@ class BrowserManager:
 
             if (!bottom.clock || !top.clock) return null;
 
-            const topRunning = top.clock.classList.contains('clock-running') || 
-                               (top.container && top.container.classList.contains('player-turn'));
-            if (topRunning) return false;
+            const hasClass = (el, cls) => el && el.classList.contains(cls);
 
-            const botRunning = bottom.clock.classList.contains('clock-running') || 
-                               (bottom.container && bottom.container.classList.contains('player-turn'));
-            if (botRunning) return true;
+            if (hasClass(top.clock, 'clock-running') || hasClass(top.container, 'player-turn')) return false;
+            if (hasClass(bottom.clock, 'clock-running') || hasClass(bottom.container, 'player-turn')) return true;
 
             const isActiveColor = (el) => {
                 if (!el) return false;
@@ -123,13 +119,14 @@ class BrowserManager:
                 return bg.includes('255, 255, 255') || bg.includes('255,') || bg === '#ffffff';
             };
 
-            const botActive = isActiveColor(bottom.clock);
-            const topActive = isActiveColor(top.clock);
+            if (isActiveColor(bottom.clock) && !isActiveColor(top.clock)) return true;
+            if (isActiveColor(top.clock) && !isActiveColor(bottom.clock)) return false;
 
-            if (botActive && !topActive) return true;
-            if (topActive && !botActive) return false;
-
-            if (!topActive && !topRunning) return true;
+            const botOp = parseFloat(window.getComputedStyle(bottom.clock).opacity);
+            const topOp = parseFloat(window.getComputedStyle(top.clock).opacity);
+            
+            if (botOp > topOp + 0.1) return true;
+            if (topOp > botOp + 0.1) return false;
 
             return null;
         """

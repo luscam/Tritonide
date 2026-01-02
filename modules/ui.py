@@ -199,11 +199,15 @@ class TritonideUI(ctk.CTk):
                     self.status("OPPONENT'S TURN", "#666")
                 self.app_state["processing"] = False; return
 
+            self.status("DETECTED TURN")
+
             board = self.browser.get_board_element()
             if not board: self.app_state["processing"] = False; return
             
             bfen = get_fen_from_board(board)
-            if not bfen: self.app_state["processing"] = False; return
+            if not bfen: 
+                self.status("WAITING FOR BOARD")
+                self.app_state["processing"] = False; return
             
             is_black = "flipped" in board.get_attribute("class")
             fen = f"{bfen} {'b' if is_black else 'w'} KQkq - 0 1"
@@ -212,6 +216,7 @@ class TritonideUI(ctk.CTk):
                 self.app_state["processing"] = False; return
             
             if fen == self.app_state["last_fen"]:
+                self.status("IDLE (SAME BOARD)")
                 self.app_state["processing"] = False; return
 
             if self.app_state["auto_resign"]:
