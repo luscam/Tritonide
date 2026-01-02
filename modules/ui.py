@@ -28,7 +28,8 @@ class TritonideUI(ctk.CTk):
             "game_started": False, "last_white_time": "", "last_black_time": "",
             "clock_stable_start": 0, "new_game_clicked": False,
             "last_my_clock_val": 9999.0,
-            "clock_stuck_frames": 0
+            "clock_stuck_frames": 0,
+            "force_turn_check": False
         }
         
         self.init_components()
@@ -153,7 +154,9 @@ class TritonideUI(ctk.CTk):
         self.log("Config loaded.")
 
     def force_move(self):
-        if not self.app_state["processing"] and self.browser.driver: threading.Thread(target=self.engine_step, daemon=True).start()
+        self.app_state["force_turn_check"] = True
+        if not self.app_state["processing"] and self.browser.driver: 
+            threading.Thread(target=self.engine_step, daemon=True).start()
 
     def get_panic_params(self):
         sk, dp = int(self.sld_skill.get()), int(self.sld_depth.get())
@@ -172,24 +175,25 @@ class TritonideUI(ctk.CTk):
             is_my_turn = False
             turn_indicator = self.browser.is_turn()
             
-            if turn_indicator is True:
+            # Hybrid detection: logic + clock diff
+            curr_clock = self.browser.get_clock()
+            prev_clock = self.app_state.get("last_my_clock_val", 9999.0)
+            clock_dropped = (curr_clock < prev_clock - 0.05)
+            
+            self.app_state["last_my_clock_val"] = curr_clock
+
+            if self.app_state["force_turn_check"]:
+                is_my_turn = True
+                self.app_state["force_turn_check"] = False
+            elif turn_indicator is True:
                 is_my_turn = True
                 self.app_state["clock_stuck_frames"] = 0
-            elif turn_indicator is False:
-                is_my_turn = False
+            elif clock_dropped:
+                is_my_turn = True
                 self.app_state["clock_stuck_frames"] = 0
-            else:
-                curr_clock = self.browser.get_clock()
-                prev_clock = self.app_state.get("last_my_clock_val", 9999.0)
-                
-                if curr_clock < prev_clock - 0.01:
-                    is_my_turn = True
-                    self.app_state["clock_stuck_frames"] = 0
-                elif curr_clock == prev_clock and prev_clock != 9999.0:
-                    self.app_state["clock_stuck_frames"] += 1
-                
-                self.app_state["last_my_clock_val"] = curr_clock
-
+            elif turn_indicator is None and clock_dropped: 
+                is_my_turn = True # Trust clock if indicator is confused
+            
             if not is_my_turn:
                 if self.app_state["autoplay"]: 
                     self.status("OPPONENT'S TURN", "#666")
@@ -282,4 +286,4 @@ class TritonideUI(ctk.CTk):
                 if self.app_state["autoplay"] and not self.app_state["processing"]:
                     self.engine_step()
             except: pass
-            time.sleep(0.3)
+            time.sleep(0.25)

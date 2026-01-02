@@ -55,9 +55,23 @@ class BrowserManager:
         if not self.driver or not self.actions: return False
         try:
             board = self.get_board_element()
-            src_el = board.find_element(By.CSS_SELECTOR, f".piece.square-{source_sq}")
-            self.actions.move_to_element(src_el).click().perform()
-            time.sleep(0.02)
+            
+            try:
+                src_el = board.find_element(By.CSS_SELECTOR, f".piece.square-{source_sq}")
+            except:
+                self.driver.execute_script(f"""
+                    const el = document.querySelector('.piece.square-{source_sq}');
+                    if(el) {{
+                        const rect = el.getBoundingClientRect();
+                        const x = rect.left + (rect.width/2);
+                        const y = rect.top + (rect.height/2);
+                        document.elementFromPoint(x, y).click();
+                    }}
+                """)
+                time.sleep(0.05)
+            else:
+                self.actions.move_to_element(src_el).click().perform()
+                time.sleep(0.02)
             
             try: 
                 target_el = board.find_element(By.CSS_SELECTOR, f".hint.square-{dest_sq}")
@@ -67,11 +81,12 @@ class BrowserManager:
             self.actions.move_to_element(target_el).click().perform()
             
             if promotion:
-                time.sleep(0.2)
+                time.sleep(0.15)
+                prom_selector = f".promotion-piece.{'b' if is_black else 'w'}{promotion}"
                 try:
-                    self.actions.move_to_element(self.driver.find_element(By.CSS_SELECTOR, f".promotion-piece.{'b' if is_black else 'w'}{promotion}")).click().perform()
+                    self.actions.move_to_element(self.driver.find_element(By.CSS_SELECTOR, prom_selector)).click().perform()
                 except:
-                    self.driver.execute_script("arguments[0].click();", self.driver.find_element(By.CSS_SELECTOR, f".promotion-piece.{'b' if is_black else 'w'}{promotion}"))
+                    self.driver.execute_script(f"document.querySelector('{prom_selector}')?.click();")
             
             return True
         except: return False
@@ -79,15 +94,32 @@ class BrowserManager:
     def is_turn(self):
         if not self.driver: return None
         script = """
-            const bottom = document.querySelector('.clock-bottom');
-            const top = document.querySelector('.clock-top');
+            const getClock = (isBottom) => {
+                const selector = isBottom 
+                    ? '.clock-bottom, [data-cy="clock-bottom"], .player-component.bottom .clock-component' 
+                    : '.clock-top, [data-cy="clock-top"], .player-component.top .clock-component';
+                return document.querySelector(selector);
+            };
+
+            const bottom = getClock(true);
+            const top = getClock(false);
+
             if (!bottom || !top) return null;
-            const activeKeywords = ['clock-player-turn', 'clock-active', 'clock-running', 'clock-low-time'];
-            const isBottomActive = activeKeywords.some(cls => bottom.classList.contains(cls));
-            const isTopActive = activeKeywords.some(cls => top.classList.contains(cls));
+
+            const activeKeywords = ['clock-player-turn', 'clock-active', 'clock-running'];
+            
+            const checkActive = (el) => activeKeywords.some(cls => el.classList.contains(cls)) || 
+                                        el.querySelector('.clock-running') !== null;
+
+            const isBottomActive = checkActive(bottom);
+            const isTopActive = checkActive(top);
+
             if (isBottomActive) return true;
             if (isTopActive) return false;
-            if (window.getComputedStyle(bottom).opacity == '1' && window.getComputedStyle(top).opacity != '1') return true;
+            
+            const bottomBg = window.getComputedStyle(bottom).backgroundColor;
+            if (bottomBg === 'rgb(255, 255, 255)' || bottomBg === '#ffffff') return true;
+            
             return null;
         """
         try:
@@ -96,9 +128,14 @@ class BrowserManager:
 
     def get_clock(self):
         try:
-            el = self.driver.find_element(By.CSS_SELECTOR, ".clock-bottom")
-            txt = el.text.strip()
+            script = """
+                const el = document.querySelector('.clock-bottom, [data-cy="clock-bottom"], .player-component.bottom .clock-component');
+                return el ? el.innerText : '';
+            """
+            txt = self.driver.execute_script(script).strip()
             txt = re.sub(r"[^\d:.]", "", txt)
+            if not txt: return 9999.0
+            
             p = txt.split(':')
             if len(p) == 2: return float(p[0])*60 + float(p[1])
             elif len(p) == 3: return float(p[0])*3600 + float(p[1])*60 + float(p[2])
@@ -108,9 +145,10 @@ class BrowserManager:
     def get_all_clocks(self):
         try:
             return self.driver.execute_script("""
+                const getTxt = (sel) => document.querySelector(sel)?.innerText || '';
                 return [
-                    document.querySelector('.clock-white')?.innerText || '',
-                    document.querySelector('.clock-black')?.innerText || ''
+                    getTxt('.clock-white, .player-component.white .clock-component'),
+                    getTxt('.clock-black, .player-component.black .clock-component')
                 ]
             """)
         except: return None, None
